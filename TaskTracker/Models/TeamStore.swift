@@ -217,8 +217,8 @@ final class TeamStore {
         update(task, ["status": status.rawValue])
     }
 
-    func setRevisions(client: Int, internal: Int, for task: TaskItem) {
-        update(task, ["clientRevisions": client, "internalRevisions": internal])
+    func setRevisions(client: Int, internal internalCount: Int, for task: TaskItem) {
+        update(task, ["clientRevisions": client, "internalRevisions": internalCount])
     }
 
     func setChecklist(_ checklist: [ChecklistItem], for task: TaskItem) {
