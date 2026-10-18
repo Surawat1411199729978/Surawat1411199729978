@@ -17,7 +17,7 @@ jobs:
 
       - name: Build for iOS Simulator
         run: |
-          set -o pipefail
+          status=0
           xcodebuild \
             -project TaskTracker.xcodeproj \
             -scheme TaskTracker \
@@ -26,5 +26,6 @@ jobs:
             -skipPackagePluginValidation \
             -skipMacroValidation \
             CODE_SIGNING_ALLOWED=NO \
-            build 2>&1 | grep -E "error:|warning: .*TaskTracker/|BUILD (SUCCEEDED|FAILED)|\*\* " || true
-          test "${PIPESTATUS[0]}" -eq 0
+            build > build.log 2>&1 || status=$?
+          grep -E "error:|warning: .*TaskTracker/|\*\* BUILD" build.log || tail -50 build.log
+          exit $status
