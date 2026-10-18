@@ -3,11 +3,12 @@ import SwiftData
 import SwiftUI
 
 struct DashboardView: View {
-    @Query(sort: \TaskItem.dueDate) private var tasks: [TaskItem]
-    @Query(sort: \TeamMember.name) private var members: [TeamMember]
+    @Environment(TeamStore.self) private var store
     @Query private var todos: [TodoItem]
-    @AppStorage("userName") private var userName = "Hannah"
-    @AppStorage("teamName") private var teamName = "Digital Marketing Team"
+    @AppStorage("userName") private var userName = ""
+
+    private var tasks: [TaskItem] { store.tasks }
+    private var members: [TeamMember] { store.members }
 
     @State private var showingNewTask = false
 
@@ -34,7 +35,7 @@ struct DashboardView: View {
     private var chartData: [ChartPoint] {
         members.flatMap { member in
             TaskStatus.allCases.compactMap { status in
-                let count = monthTasks.filter { $0.assignee == member && $0.status == status }.count
+                let count = monthTasks.filter { $0.assigneeID == member.id && $0.status == status }.count
                 return count > 0 ? ChartPoint(member: member.name, status: status, count: count) : nil
             }
         }
@@ -56,8 +57,8 @@ struct DashboardView: View {
             .background(Color(.systemGroupedBackground))
             .navigationTitle("ภาพรวม")
             .navigationBarTitleDisplayMode(.inline)
-            .navigationDestination(for: TaskItem.self) { task in
-                TaskDetailView(task: task)
+            .navigationDestination(for: TaskRoute.self) { route in
+                TaskDetailView(taskID: route.id)
             }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -76,7 +77,7 @@ struct DashboardView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(teamName.uppercased())
+            Text(store.teamName.uppercased())
                 .font(.caption.weight(.semibold))
                 .foregroundStyle(.secondary)
             Text("ยินดีต้อนรับกลับ, \(userName)!")
@@ -101,9 +102,9 @@ struct DashboardView: View {
                     .foregroundStyle(.secondary)
             } else {
                 ForEach(needsAttention.prefix(5)) { task in
-                    NavigationLink(value: task) {
+                    NavigationLink(value: TaskRoute(id: task.id)) {
                         HStack {
-                            if let member = task.assignee {
+                            if let member = store.member(task.assigneeID) {
                                 AvatarView(name: member.name, colorIndex: member.colorIndex, size: 26)
                             }
                             VStack(alignment: .leading, spacing: 2) {
@@ -174,7 +175,7 @@ struct DashboardView: View {
     private var teamCard: some View {
         CardContainer(title: "ทีม", systemImage: "person.3") {
             ForEach(members) { member in
-                let active = member.tasks.filter { $0.status != .posted }.count
+                let active = tasks.filter { $0.assigneeID == member.id && $0.status != .posted }.count
                 HStack {
                     AvatarView(name: member.name, colorIndex: member.colorIndex, size: 32)
                     VStack(alignment: .leading, spacing: 2) {

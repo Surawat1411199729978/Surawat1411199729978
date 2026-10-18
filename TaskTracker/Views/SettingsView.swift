@@ -1,29 +1,43 @@
-import SwiftData
 import SwiftUI
 
 struct SettingsView: View {
-    @Environment(\.modelContext) private var context
-    @Query(sort: \TeamMember.name) private var members: [TeamMember]
-    @Query(sort: \Brand.name) private var brands: [Brand]
-    @AppStorage("userName") private var userName = "Hannah"
-    @AppStorage("teamName") private var teamName = "Digital Marketing Team"
+    @Environment(TeamStore.self) private var store
+    @AppStorage("userName") private var userName = ""
 
     @State private var editingMember: TeamMember?
     @State private var addingMember = false
     @State private var editingBrand: Brand?
     @State private var addingBrandKind: BrandKind?
     @State private var confirmingReset = false
+    @State private var confirmingLeave = false
 
     var body: some View {
         NavigationStack {
             Form {
+                Section {
+                    LabeledContent("ชื่อทีม", value: store.teamName)
+                    LabeledContent("รหัสทีม") {
+                        Text(store.teamCode)
+                            .font(.body.monospaced().bold())
+                            .textSelection(.enabled)
+                    }
+                    ShareLink(
+                        item: "เข้าร่วมทีม \"\(store.teamName)\" ในแอพ Team Tasks ด้วยรหัส: \(store.teamCode)"
+                    ) {
+                        Label("แชร์รหัสทีมให้เพื่อนร่วมทีม", systemImage: "square.and.arrow.up")
+                    }
+                } header: {
+                    Text("ทีม")
+                } footer: {
+                    Text("ใครมีรหัสทีมจะเห็นและแก้ไขงานของทีมได้ แชร์ให้เฉพาะคนในทีม")
+                }
+
                 Section("โปรไฟล์") {
-                    TextField("ชื่อของคุณ", text: $userName)
-                    TextField("ชื่อทีม", text: $teamName)
+                    TextField("ชื่อของคุณ (ใช้แสดงในความคิดเห็น)", text: $userName)
                 }
 
                 Section("สมาชิกทีม") {
-                    ForEach(members) { member in
+                    ForEach(store.members) { member in
                         Button {
                             editingMember = member
                         } label: {
@@ -39,7 +53,7 @@ struct SettingsView: View {
                         }
                     }
                     .onDelete { offsets in
-                        offsets.forEach { context.delete(members[$0]) }
+                        offsets.map { store.members[$0] }.forEach { store.delete($0) }
                     }
                     Button {
                         addingMember = true
@@ -49,7 +63,7 @@ struct SettingsView: View {
                 }
 
                 ForEach(BrandKind.allCases) { kind in
-                    let list = brands.filter { $0.kind == kind }
+                    let list = store.brands.filter { $0.kind == kind }
                     Section(kind.title) {
                         ForEach(list) { brand in
                             Button {
@@ -59,12 +73,13 @@ struct SettingsView: View {
                                     Circle().fill(Palette.color(brand.colorIndex)).frame(width: 10, height: 10)
                                     Text(brand.name).foregroundStyle(.primary)
                                     Spacer()
-                                    Text("\(brand.tasks.count) งาน").font(.caption).foregroundStyle(.secondary)
+                                    let count = store.tasks.filter { $0.brandID == brand.id }.count
+                                    Text("\(count) งาน").font(.caption).foregroundStyle(.secondary)
                                 }
                             }
                         }
                         .onDelete { offsets in
-                            offsets.forEach { context.delete(list[$0]) }
+                            offsets.map { list[$0] }.forEach { store.delete($0) }
                         }
                         Button {
                             addingBrandKind = kind
@@ -76,10 +91,13 @@ struct SettingsView: View {
 
                 Section("ข้อมูล") {
                     Button("โหลดข้อมูลตัวอย่าง") {
-                        SampleData.load(into: context)
+                        store.loadSampleData()
                     }
-                    Button("ลบข้อมูลทั้งหมด", role: .destructive) {
+                    Button("ลบงาน สมาชิก และแบรนด์ทั้งหมดของทีม", role: .destructive) {
                         confirmingReset = true
+                    }
+                    Button("ออกจากทีมนี้", role: .destructive) {
+                        confirmingLeave = true
                     }
                 }
             }
@@ -97,12 +115,21 @@ struct SettingsView: View {
                 BrandEditorView(brand: nil, kind: kind)
             }
             .confirmationDialog(
-                "ลบงาน, To-Do, สมาชิก และแบรนด์ทั้งหมด?",
+                "ลบข้อมูลทั้งหมดของทีม? ทุกคนในทีมจะไม่เห็นข้อมูลนี้อีก",
                 isPresented: $confirmingReset,
                 titleVisibility: .visible
             ) {
                 Button("ลบทั้งหมด", role: .destructive) {
-                    SampleData.deleteAll(in: context)
+                    store.deleteAllTeamData()
+                }
+            }
+            .confirmationDialog(
+                "ออกจากทีม? ข้อมูลของทีมจะยังอยู่ และกลับเข้ามาได้ด้วยรหัสทีม \(store.teamCode)",
+                isPresented: $confirmingLeave,
+                titleVisibility: .visible
+            ) {
+                Button("ออกจากทีม", role: .destructive) {
+                    store.leaveTeam()
                 }
             }
         }
@@ -110,19 +137,15 @@ struct SettingsView: View {
 }
 
 struct MemberEditorView: View {
-    @Environment(\.modelContext) private var context
+    @Environment(TeamStore.self) private var store
     @Environment(\.dismiss) private var dismiss
 
-    private let member: TeamMember?
-    @State private var name: String
-    @State private var role: String
-    @State private var colorIndex: Int
+    @State private var draft: TeamMember
+    private let isNew: Bool
 
     init(member: TeamMember?) {
-        self.member = member
-        _name = State(initialValue: member?.name ?? "")
-        _role = State(initialValue: member?.role ?? "")
-        _colorIndex = State(initialValue: member?.colorIndex ?? Int.random(in: 0..<Palette.colors.count))
+        isNew = member == nil
+        _draft = State(initialValue: member ?? TeamMember(name: "", colorIndex: Int.random(in: 0..<Palette.colors.count)))
     }
 
     var body: some View {
@@ -131,20 +154,20 @@ struct MemberEditorView: View {
                 Section {
                     HStack {
                         Spacer()
-                        AvatarView(name: name.isEmpty ? "?" : name, colorIndex: colorIndex, size: 72)
+                        AvatarView(name: draft.name.isEmpty ? "?" : draft.name, colorIndex: draft.colorIndex, size: 72)
                         Spacer()
                     }
                     .listRowBackground(Color.clear)
                 }
                 Section {
-                    TextField("ชื่อ", text: $name)
-                    TextField("ตำแหน่ง", text: $role)
+                    TextField("ชื่อ", text: $draft.name)
+                    TextField("ตำแหน่ง", text: $draft.role)
                 }
                 Section("สี") {
-                    ColorDotPicker(selection: $colorIndex)
+                    ColorDotPicker(selection: $draft.colorIndex)
                 }
             }
-            .navigationTitle(member == nil ? "สมาชิกใหม่" : "แก้ไขสมาชิก")
+            .navigationTitle(isNew ? "สมาชิกใหม่" : "แก้ไขสมาชิก")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -152,19 +175,13 @@ struct MemberEditorView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("บันทึก") {
-                        let target: TeamMember
-                        if let member {
-                            target = member
-                        } else {
-                            target = TeamMember(name: "")
-                            context.insert(target)
-                        }
-                        target.name = name.trimmingCharacters(in: .whitespaces)
-                        target.role = role.trimmingCharacters(in: .whitespaces)
-                        target.colorIndex = colorIndex
+                        var member = draft
+                        member.name = member.name.trimmingCharacters(in: .whitespaces)
+                        member.role = member.role.trimmingCharacters(in: .whitespaces)
+                        store.save(member)
                         dismiss()
                     }
-                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(draft.name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
         }
@@ -172,27 +189,23 @@ struct MemberEditorView: View {
 }
 
 struct BrandEditorView: View {
-    @Environment(\.modelContext) private var context
+    @Environment(TeamStore.self) private var store
     @Environment(\.dismiss) private var dismiss
 
-    private let brand: Brand?
-    @State private var name: String
-    @State private var kind: BrandKind
-    @State private var colorIndex: Int
+    @State private var draft: Brand
+    private let isNew: Bool
 
     init(brand: Brand?, kind: BrandKind) {
-        self.brand = brand
-        _name = State(initialValue: brand?.name ?? "")
-        _kind = State(initialValue: kind)
-        _colorIndex = State(initialValue: brand?.colorIndex ?? Int.random(in: 0..<Palette.colors.count))
+        isNew = brand == nil
+        _draft = State(initialValue: brand ?? Brand(name: "", kind: kind, colorIndex: Int.random(in: 0..<Palette.colors.count)))
     }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("ชื่อแบรนด์ / ลูกค้า", text: $name)
-                    Picker("ประเภท", selection: $kind) {
+                    TextField("ชื่อแบรนด์ / ลูกค้า", text: $draft.name)
+                    Picker("ประเภท", selection: $draft.kind) {
                         ForEach(BrandKind.allCases) { kind in
                             Text(kind.title).tag(kind)
                         }
@@ -200,10 +213,10 @@ struct BrandEditorView: View {
                     .pickerStyle(.segmented)
                 }
                 Section("สี") {
-                    ColorDotPicker(selection: $colorIndex)
+                    ColorDotPicker(selection: $draft.colorIndex)
                 }
             }
-            .navigationTitle(brand == nil ? "เพิ่มใหม่" : "แก้ไข")
+            .navigationTitle(isNew ? "เพิ่มใหม่" : "แก้ไข")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -211,19 +224,12 @@ struct BrandEditorView: View {
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("บันทึก") {
-                        let target: Brand
-                        if let brand {
-                            target = brand
-                        } else {
-                            target = Brand(name: "", kind: kind)
-                            context.insert(target)
-                        }
-                        target.name = name.trimmingCharacters(in: .whitespaces)
-                        target.kind = kind
-                        target.colorIndex = colorIndex
+                        var brand = draft
+                        brand.name = brand.name.trimmingCharacters(in: .whitespaces)
+                        store.save(brand)
                         dismiss()
                     }
-                    .disabled(name.trimmingCharacters(in: .whitespaces).isEmpty)
+                    .disabled(draft.name.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
             }
         }

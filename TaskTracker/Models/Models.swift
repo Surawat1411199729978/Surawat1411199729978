@@ -124,156 +124,69 @@ enum TodoPriority: Int, CaseIterable, Identifiable, Codable {
     }
 }
 
-// MARK: - Models
+// MARK: - Shared team data (stored in Firestore under teams/{code}/...)
 
-@Model
-final class TeamMember {
-    var name: String = ""
-    var role: String = ""
-    var colorIndex: Int = 0
-    var createdAt: Date = Date.now
-
-    @Relationship(deleteRule: .nullify, inverse: \TaskItem.assignee)
-    var tasks: [TaskItem] = []
-
-    init(name: String, role: String = "", colorIndex: Int = 0) {
-        self.name = name
-        self.role = role
-        self.colorIndex = colorIndex
-        self.createdAt = .now
-    }
+struct TeamMember: Codable, Identifiable, Hashable {
+    var id = UUID().uuidString
+    var name: String
+    var role = ""
+    var colorIndex = 0
 }
 
-@Model
-final class Brand {
-    var name: String = ""
-    var kindRaw: String = BrandKind.inHouse.rawValue
-    var colorIndex: Int = 0
-    var createdAt: Date = Date.now
-
-    @Relationship(deleteRule: .nullify, inverse: \TaskItem.brand)
-    var tasks: [TaskItem] = []
-
-    var kind: BrandKind {
-        get { BrandKind(rawValue: kindRaw) ?? .inHouse }
-        set { kindRaw = newValue.rawValue }
-    }
-
-    init(name: String, kind: BrandKind, colorIndex: Int = 0) {
-        self.name = name
-        self.kindRaw = kind.rawValue
-        self.colorIndex = colorIndex
-        self.createdAt = .now
-    }
+struct Brand: Codable, Identifiable, Hashable {
+    var id = UUID().uuidString
+    var name: String
+    var kind: BrandKind
+    var colorIndex = 0
 }
 
-@Model
-final class TaskItem {
-    var title: String = ""
-    var notes: String = ""
-    var dueDate: Date = Date.now
-    var statusRaw: String = TaskStatus.inProgress.rawValue
-    var actionRaw: String = TaskAction.create.rawValue
-    var materialRaw: String = MaterialType.other.rawValue
-    var materialsURL: String = ""
-    var outputURL: String = ""
-    var clientRevisions: Int = 0
-    var internalRevisions: Int = 0
-    var createdAt: Date = Date.now
-    var updatedAt: Date = Date.now
+struct ChecklistItem: Codable, Identifiable, Hashable {
+    var id = UUID().uuidString
+    var title: String
+    var isDone = false
+}
 
-    var assignee: TeamMember?
-    var brand: Brand?
+struct TaskComment: Codable, Identifiable, Hashable {
+    var id = UUID().uuidString
+    var text: String
+    var author: String
+    var createdAt = Date.now
+}
 
-    @Relationship(deleteRule: .cascade, inverse: \ChecklistItem.task)
+struct TaskItem: Codable, Identifiable, Hashable {
+    var id = UUID().uuidString
+    var title: String
+    var notes = ""
+    var dueDate: Date
+    var status: TaskStatus = .inProgress
+    var action: TaskAction = .create
+    var material: MaterialType = .other
+    var assigneeID: String?
+    var brandID: String?
+    var materialsURL = ""
+    var outputURL = ""
+    var clientRevisions = 0
+    var internalRevisions = 0
     var checklist: [ChecklistItem] = []
-
-    @Relationship(deleteRule: .cascade, inverse: \TaskComment.task)
     var comments: [TaskComment] = []
-
-    var status: TaskStatus {
-        get { TaskStatus(rawValue: statusRaw) ?? .inProgress }
-        set {
-            statusRaw = newValue.rawValue
-            updatedAt = .now
-        }
-    }
-
-    var action: TaskAction {
-        get { TaskAction(rawValue: actionRaw) ?? .create }
-        set { actionRaw = newValue.rawValue }
-    }
-
-    var material: MaterialType {
-        get { MaterialType(rawValue: materialRaw) ?? .other }
-        set { materialRaw = newValue.rawValue }
-    }
-
-    var sortedChecklist: [ChecklistItem] {
-        checklist.sorted { $0.order < $1.order }
-    }
-
-    var sortedComments: [TaskComment] {
-        comments.sorted { $0.createdAt < $1.createdAt }
-    }
+    var createdAt = Date.now
+    var updatedAt = Date.now
 
     var isOverdue: Bool {
         status != .posted && dueDate < AppCalendar.shared.startOfDay(for: .now)
     }
 
-    init(
-        title: String,
-        dueDate: Date,
-        status: TaskStatus = .inProgress,
-        action: TaskAction = .create,
-        material: MaterialType = .other,
-        assignee: TeamMember? = nil,
-        brand: Brand? = nil,
-        notes: String = "",
-        materialsURL: String = "",
-        outputURL: String = ""
-    ) {
-        self.title = title
-        self.dueDate = dueDate
-        self.statusRaw = status.rawValue
-        self.actionRaw = action.rawValue
-        self.materialRaw = material.rawValue
-        self.assignee = assignee
-        self.brand = brand
-        self.notes = notes
-        self.materialsURL = materialsURL
-        self.outputURL = outputURL
-        self.createdAt = .now
-        self.updatedAt = .now
+    var sortedComments: [TaskComment] {
+        comments.sorted { $0.createdAt < $1.createdAt }
     }
 }
 
-@Model
-final class ChecklistItem {
-    var title: String = ""
-    var isDone: Bool = false
-    var order: Int = 0
-    var task: TaskItem?
-
-    init(title: String, order: Int) {
-        self.title = title
-        self.order = order
-    }
+/// Navigation value for opening a task; the screen looks the task up live from the store.
+struct TaskRoute: Hashable {
+    let id: String
 }
 
-@Model
-final class TaskComment {
-    var text: String = ""
-    var author: String = ""
-    var createdAt: Date = Date.now
-    var task: TaskItem?
-
-    init(text: String, author: String) {
-        self.text = text
-        self.author = author
-        self.createdAt = .now
-    }
-}
+// MARK: - Personal to-dos (stored on this device only)
 
 @Model
 final class TodoItem {

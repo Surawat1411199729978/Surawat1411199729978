@@ -1,15 +1,11 @@
-import SwiftData
 import SwiftUI
 
 struct TasksView: View {
-    @Environment(\.modelContext) private var context
-    @Query(sort: \TaskItem.dueDate) private var allTasks: [TaskItem]
-    @Query(sort: \TeamMember.name) private var members: [TeamMember]
-    @Query(sort: \Brand.name) private var brands: [Brand]
+    @Environment(TeamStore.self) private var store
 
     @State private var month = AppCalendar.startOfMonth(.now)
-    @State private var memberFilter: TeamMember?
-    @State private var brandFilter: Brand?
+    @State private var memberFilter: String?
+    @State private var brandFilter: String?
     @State private var materialFilter: MaterialType?
     @State private var statusFilter: TaskStatus?
     @State private var searchText = ""
@@ -17,10 +13,10 @@ struct TasksView: View {
 
     /// Tasks in the selected month matching every filter except status (used for the summary counts).
     private var monthTasks: [TaskItem] {
-        allTasks.filter { task in
+        store.tasks.filter { task in
             AppCalendar.isSameMonth(task.dueDate, month)
-                && (memberFilter == nil || task.assignee == memberFilter)
-                && (brandFilter == nil || task.brand == brandFilter)
+                && (memberFilter == nil || task.assigneeID == memberFilter)
+                && (brandFilter == nil || task.brandID == brandFilter)
                 && (materialFilter == nil || task.material == materialFilter)
                 && (searchText.isEmpty || task.title.localizedCaseInsensitiveContains(searchText))
         }
@@ -57,13 +53,13 @@ struct TasksView: View {
                 ForEach(weeks) { week in
                     Section {
                         ForEach(week.tasks) { task in
-                            NavigationLink(value: task) {
+                            NavigationLink(value: TaskRoute(id: task.id)) {
                                 TaskRowView(task: task)
                             }
                             .swipeActions(edge: .leading) {
                                 if let next = task.status.next {
                                     Button {
-                                        withAnimation { task.status = next }
+                                        store.setStatus(next, for: task)
                                     } label: {
                                         Label(next.title, systemImage: next.icon)
                                     }
@@ -72,7 +68,7 @@ struct TasksView: View {
                             }
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) {
-                                    withAnimation { context.delete(task) }
+                                    store.delete(task)
                                 } label: {
                                     Label("ลบ", systemImage: "trash")
                                 }
@@ -87,10 +83,11 @@ struct TasksView: View {
                 }
             }
             .listStyle(.insetGrouped)
+            .animation(.default, value: visibleTasks)
             .navigationTitle("งานของทีม")
             .searchable(text: $searchText, prompt: "ค้นหาชื่องาน")
-            .navigationDestination(for: TaskItem.self) { task in
-                TaskDetailView(task: task)
+            .navigationDestination(for: TaskRoute.self) { route in
+                TaskDetailView(taskID: route.id)
             }
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -133,19 +130,19 @@ struct TasksView: View {
             HStack(spacing: 8) {
                 monthStepper
 
-                FilterChip(title: memberFilter?.name ?? "ทั้งทีม", isActive: memberFilter != nil) {
+                FilterChip(title: store.member(memberFilter)?.name ?? "ทั้งทีม", isActive: memberFilter != nil) {
                     Button("ทั้งทีม") { memberFilter = nil }
-                    ForEach(members) { member in
-                        Button(member.name) { memberFilter = member }
+                    ForEach(store.members) { member in
+                        Button(member.name) { memberFilter = member.id }
                     }
                 }
 
-                FilterChip(title: brandFilter?.name ?? "แบรนด์: ทั้งหมด", isActive: brandFilter != nil) {
+                FilterChip(title: store.brand(brandFilter)?.name ?? "แบรนด์: ทั้งหมด", isActive: brandFilter != nil) {
                     Button("ทั้งหมด") { brandFilter = nil }
                     ForEach(BrandKind.allCases) { kind in
                         Section(kind.title) {
-                            ForEach(brands.filter { $0.kind == kind }) { brand in
-                                Button(brand.name) { brandFilter = brand }
+                            ForEach(store.brands.filter { $0.kind == kind }) { brand in
+                                Button(brand.name) { brandFilter = brand.id }
                             }
                         }
                     }
@@ -211,6 +208,7 @@ struct TasksView: View {
 }
 
 struct TaskRowView: View {
+    @Environment(TeamStore.self) private var store
     let task: TaskItem
 
     var body: some View {
@@ -224,7 +222,7 @@ struct TaskRowView: View {
             }
 
             HStack(spacing: 6) {
-                if let member = task.assignee {
+                if let member = store.member(task.assigneeID) {
                     AvatarView(name: member.name, colorIndex: member.colorIndex, size: 22)
                     Text(member.name)
                 } else {
@@ -241,7 +239,7 @@ struct TaskRowView: View {
             HStack(spacing: 12) {
                 Label(task.dueDate.formatted(.dateTime.day().month(.abbreviated)), systemImage: "calendar")
                     .foregroundStyle(task.isOverdue ? Color.red : Color.secondary)
-                if let brand = task.brand {
+                if let brand = store.brand(task.brandID) {
                     HStack(spacing: 4) {
                         Circle().fill(Palette.color(brand.colorIndex)).frame(width: 7, height: 7)
                         Text(brand.name).lineLimit(1)

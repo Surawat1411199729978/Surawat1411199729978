@@ -1,6 +1,6 @@
 # Team Tasks (iPhone)
 
-แอพ iPhone (SwiftUI + SwiftData) สำหรับติดตามสถานะงานของทีมและจด To-Do list ได้แรงบันดาลใจจากหน้า "DM Team Tasks"
+แอพ iPhone (SwiftUI + Firebase) สำหรับติดตามสถานะงานของทีมและจด To-Do list ได้แรงบันดาลใจจากหน้า "DM Team Tasks"
 
 ## ฟีเจอร์
 
@@ -11,28 +11,49 @@
 - **รายละเอียดงาน** มีผู้รับผิดชอบ, กำหนดส่ง, ประเภทงาน (Copywriting, Static design, Carousel, Reel, Slides), ขั้นตอน (สร้าง/ตั้งเวลา/โพสต์), แบรนด์/ลูกค้า, ลิงก์ Materials/Output, จำนวนครั้งที่ลูกค้าและทีมภายในแก้ไข, เช็กลิสต์ และความคิดเห็น
 - **To-Do** เพิ่มรายการได้เร็ว ตั้งความสำคัญและวันกำหนดได้ และติ๊กเมื่อเสร็จ
 - **ปฏิทิน** เลือกวันเพื่อดูงานและ To-Do ของวันนั้น
-- **ตั้งค่า** ตั้งชื่อผู้ใช้และชื่อทีม จัดการสมาชิก, แบรนด์ในเครือ และลูกค้า โหลดหรือลบข้อมูลตัวอย่างได้
+- **ตั้งค่า** ดูและแชร์รหัสทีม ตั้งชื่อผู้ใช้ จัดการสมาชิก, แบรนด์ในเครือ และลูกค้า โหลดข้อมูลตัวอย่าง และออกจากทีม
 
-ข้อมูลทั้งหมดเก็บไว้ในเครื่อง (SwiftData) เปิดแอพครั้งแรกจะมีข้อมูลตัวอย่างให้ลองใช้
+## การใช้งานร่วมกันเป็นทีม
+
+- งาน, สมาชิก และแบรนด์/ลูกค้า เก็บบน **Firebase Firestore** ทุกคนในทีมจะเห็นข้อมูลชุดเดียวกันแบบ real-time และใช้งานแบบออฟไลน์ได้ (ซิงก์อัตโนมัติเมื่อกลับมาออนไลน์)
+- **To-Do** เป็นรายการส่วนตัว เก็บไว้ในเครื่องของแต่ละคน
+- เปิดแอพครั้งแรก ให้ใส่ชื่อของคุณ แล้วเลือกอย่างใดอย่างหนึ่ง
+  - **สร้างทีมใหม่** จะได้ **รหัสทีม 8 ตัวอักษร** (ดูและแชร์ได้ที่แท็บตั้งค่า)
+  - **เข้าร่วมทีม** โดยกรอกรหัสทีมที่ได้จากเพื่อน
+- ใครมีรหัสทีมจะเข้าถึงข้อมูลของทีมได้ แชร์ให้เฉพาะคนในทีม
 
 ## ความต้องการ
 
-- Mac ที่ติดตั้ง **Xcode 16** ขึ้นไป
+- Mac ที่ติดตั้ง **Xcode 16.2** ขึ้นไป
 - iPhone ที่ใช้ **iOS 17** ขึ้นไป
-- Apple ID (ใช้บัญชีฟรีก็ติดตั้งลงเครื่องตัวเองได้)
+- Apple ID (บัญชีฟรีก็ติดตั้งลงเครื่องตัวเองได้)
+- บัญชี Google สำหรับ Firebase (แพ็กเกจฟรี Spark พอสำหรับทีมเล็ก)
 
-## วิธีติดตั้งลง iPhone
+## ขั้นที่ 1: ตั้งค่า Firebase (ทำครั้งเดียว โดยคนเดียวในทีม)
 
-1. Clone รีโปนี้ลง Mac แล้วเปิดไฟล์ `TaskTracker.xcodeproj`
-2. คลิกโปรเจกต์ **TaskTracker** > Target **TaskTracker** > แท็บ **Signing & Capabilities**
-   - เลือก **Team** เป็น Apple ID ของคุณ (ถ้ายังไม่มี ให้เพิ่มได้ที่ Xcode > Settings > Accounts)
-   - ถ้า Bundle Identifier ซ้ำ ให้เปลี่ยน `com.surawat.TaskTracker` เป็นชื่ออื่นที่ไม่ซ้ำ
-3. เสียบ iPhone เข้ากับ Mac (หรือใช้ Wi-Fi) แล้วเลือกเครื่องของคุณที่แถบด้านบน
+1. ไปที่ <https://console.firebase.google.com> แล้วกด **Create a project** (ไม่ต้องเปิด Google Analytics ก็ได้)
+2. **เพิ่มแอพ iOS** โดยกดไอคอน iOS ในหน้าโปรเจกต์
+   - Bundle ID: `com.surawat.TaskTracker` (ถ้าเปลี่ยน Bundle ID ใน Xcode ต้องใช้ค่าเดียวกันทั้งสองที่)
+   - ดาวน์โหลดไฟล์ **`GoogleService-Info.plist`** แล้ววางไว้ในโฟลเดอร์ `TaskTracker/` (โฟลเดอร์เดียวกับ `TaskTrackerApp.swift`) จากนั้นข้ามขั้นตอนอื่นในหน้านั้นไปได้เลย
+3. เมนู **Build > Authentication** กด Get started แล้วเปิด **Anonymous** ในแท็บ Sign-in method
+4. เมนู **Build > Firestore Database** กด Create database
+   - เลือก location ที่ใกล้ เช่น `asia-southeast1` (สิงคโปร์)
+   - เลือก **production mode**
+5. ในแท็บ **Rules** ของ Firestore ให้ลบของเดิม แล้ววางเนื้อหาจากไฟล์ [`firestore.rules`](firestore.rules) ในรีโปนี้ จากนั้นกด **Publish**
+
+> ไฟล์ `GoogleService-Info.plist` ถูกตั้งไว้ใน `.gitignore` จึงไม่ถูก commit ขึ้นรีโป ถ้ามีคนอื่น build แอพเองด้วย ให้ส่งไฟล์นี้ให้เขาโดยตรง
+
+## ขั้นที่ 2: ติดตั้งลง iPhone
+
+1. Clone รีโปนี้ลง Mac แล้วเปิดไฟล์ `TaskTracker.xcodeproj` รอให้ Xcode ดาวน์โหลดแพ็กเกจ Firebase ให้เสร็จ (ครั้งแรกใช้เวลาหลายนาที)
+2. คลิกโปรเจกต์ **TaskTracker** > Target **TaskTracker** > แท็บ **Signing & Capabilities** แล้วเลือก **Team** เป็น Apple ID ของคุณ
+3. เสียบ iPhone เข้ากับ Mac แล้วเลือกเครื่องของคุณที่แถบด้านบน
 4. บน iPhone ให้เปิด **Developer Mode** ที่ ตั้งค่า > ความเป็นส่วนตัวและความปลอดภัย > โหมดนักพัฒนา
 5. กด ▶︎ (Run) ใน Xcode
 6. ครั้งแรกบน iPhone ให้ไปที่ ตั้งค่า > ทั่วไป > VPN และการจัดการอุปกรณ์ แล้วกด "เชื่อถือ" ใบรับรองนักพัฒนาของคุณ
 
-> ถ้าใช้ Apple ID ฟรี แอพจะใช้งานได้ 7 วัน หลังจากนั้นให้กด Run จาก Xcode อีกครั้ง ถ้าเป็นสมาชิก Apple Developer Program ($99/ปี) แอพจะอยู่ได้ 1 ปี และแจกให้ทีมผ่าน TestFlight ได้
+> ถ้าใช้ Apple ID ฟรี แอพจะใช้งานได้ 7 วัน ต้องกด Run จาก Xcode ใหม่ และต้องเสียบเครื่องของแต่ละคนเข้ากับ Mac เพื่อติดตั้ง
+> ถ้าสมัคร Apple Developer Program ($99/ปี) จะแจกแอพให้ทั้งทีมผ่าน **TestFlight** ได้ โดยไม่ต้องเสียบสาย
 
 ## โครงสร้างโค้ด
 
@@ -40,11 +61,13 @@
 TaskTracker/
 ├── TaskTrackerApp.swift      # จุดเริ่มแอพ + TabView
 ├── Models/
-│   ├── Models.swift          # TeamMember, Brand, TaskItem, ChecklistItem, TaskComment, TodoItem
+│   ├── Models.swift          # TeamMember, Brand, TaskItem (Firestore) และ TodoItem (ในเครื่อง)
+│   ├── TeamStore.swift       # เชื่อมต่อ Firestore: ฟังการเปลี่ยนแปลงแบบ real-time และบันทึกข้อมูล
 │   └── SampleData.swift      # ข้อมูลตัวอย่าง
 └── Views/
     ├── DashboardView.swift   # ภาพรวม
     ├── TasksView.swift       # รายการงานแบ่งตามสัปดาห์ + ตัวกรอง
+    ├── TeamSetupView.swift   # หน้าสร้าง/เข้าร่วมทีม
     ├── TaskDetailView.swift  # รายละเอียดงาน + ฟอร์มเพิ่ม/แก้ไข
     ├── TodoView.swift        # To-Do list
     ├── CalendarView.swift    # ปฏิทิน

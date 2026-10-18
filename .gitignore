@@ -3,3 +3,4 @@ xcuserdata/
 DerivedData/
 *.xcuserstate
 build/
+TaskTracker/GoogleService-Info.plist

@@ -2,14 +2,14 @@ import SwiftData
 import SwiftUI
 
 struct CalendarView: View {
-    @Query(sort: \TaskItem.dueDate) private var tasks: [TaskItem]
+    @Environment(TeamStore.self) private var store
     @Query private var todos: [TodoItem]
 
     @State private var selectedDate = Date.now
     @State private var showingNewTask = false
 
     private var dayTasks: [TaskItem] {
-        tasks.filter { AppCalendar.shared.isDate($0.dueDate, inSameDayAs: selectedDate) }
+        store.tasks.filter { AppCalendar.shared.isDate($0.dueDate, inSameDayAs: selectedDate) }
     }
 
     private var dayTodos: [TodoItem] {
@@ -32,7 +32,7 @@ struct CalendarView: View {
                         Text("ไม่มีงานในวันนี้").foregroundStyle(.secondary)
                     }
                     ForEach(dayTasks) { task in
-                        NavigationLink(value: task) {
+                        NavigationLink(value: TaskRoute(id: task.id)) {
                             TaskRowView(task: task)
                         }
                     }
@@ -48,8 +48,8 @@ struct CalendarView: View {
                 }
             }
             .navigationTitle("ปฏิทิน")
-            .navigationDestination(for: TaskItem.self) { task in
-                TaskDetailView(task: task)
+            .navigationDestination(for: TaskRoute.self) { route in
+                TaskDetailView(taskID: route.id)
             }
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {

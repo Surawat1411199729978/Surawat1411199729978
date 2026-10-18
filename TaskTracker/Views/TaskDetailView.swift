@@ -1,11 +1,26 @@
-import SwiftData
 import SwiftUI
 
 struct TaskDetailView: View {
-    @Bindable var task: TaskItem
-    @Environment(\.modelContext) private var context
+    let taskID: String
+
+    @Environment(TeamStore.self) private var store
+
+    var body: some View {
+        if let task = store.task(taskID) {
+            TaskDetailContent(task: task)
+        } else {
+            ContentUnavailableView("ไม่พบงานนี้", systemImage: "trash", description: Text("งานอาจถูกลบไปแล้ว"))
+        }
+    }
+}
+
+/// Shows one task. `task` is a fresh snapshot each time the store updates, so edits from teammates appear live.
+private struct TaskDetailContent: View {
+    let task: TaskItem
+
+    @Environment(TeamStore.self) private var store
     @Environment(\.dismiss) private var dismiss
-    @AppStorage("userName") private var userName = "Hannah"
+    @AppStorage("userName") private var userName = ""
 
     @State private var showingEditor = false
     @State private var confirmingDelete = false
@@ -26,10 +41,16 @@ struct TaskDetailView: View {
                                 .foregroundStyle(.red)
                         }
                     }
+                    Text("อัปเดตล่าสุด \(task.updatedAt.formatted(.relative(presentation: .named)))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
                 .padding(.vertical, 4)
 
-                Picker("สถานะ", selection: $task.status) {
+                Picker("สถานะ", selection: Binding(
+                    get: { task.status },
+                    set: { store.setStatus($0, for: task) }
+                )) {
                     ForEach(TaskStatus.allCases) { status in
                         Label(status.title, systemImage: status.icon).tag(status)
                     }
@@ -37,7 +58,7 @@ struct TaskDetailView: View {
 
                 if let next = task.status.next {
                     Button {
-                        withAnimation { task.status = next }
+                        store.setStatus(next, for: task)
                     } label: {
                         Label("ย้ายไป \"\(next.title)\"", systemImage: "arrow.right.circle.fill")
                     }
@@ -46,7 +67,7 @@ struct TaskDetailView: View {
 
             Section("รายละเอียด") {
                 LabeledContent("ผู้รับผิดชอบ") {
-                    if let member = task.assignee {
+                    if let member = store.member(task.assigneeID) {
                         HStack(spacing: 6) {
                             AvatarView(name: member.name, colorIndex: member.colorIndex, size: 24)
                             Text(member.name)
@@ -58,7 +79,7 @@ struct TaskDetailView: View {
                 LabeledContent("กำหนดส่ง", value: task.dueDate.formatted(date: .abbreviated, time: .omitted))
                 LabeledContent("ประเภทงาน", value: task.material.title)
                 LabeledContent("ขั้นตอน", value: task.action.title)
-                LabeledContent("แบรนด์ / ลูกค้า", value: task.brand?.name ?? "-")
+                LabeledContent("แบรนด์ / ลูกค้า", value: store.brand(task.brandID)?.name ?? "-")
             }
 
             Section("ไฟล์งาน") {
@@ -67,8 +88,14 @@ struct TaskDetailView: View {
             }
 
             Section("จำนวนครั้งที่แก้ไข") {
-                Stepper("ลูกค้า: \(task.clientRevisions)", value: $task.clientRevisions, in: 0...99)
-                Stepper("ภายใน: \(task.internalRevisions)", value: $task.internalRevisions, in: 0...99)
+                Stepper("ลูกค้า: \(task.clientRevisions)", value: Binding(
+                    get: { task.clientRevisions },
+                    set: { store.setRevisions(client: $0, internal: task.internalRevisions, for: task) }
+                ), in: 0...99)
+                Stepper("ภายใน: \(task.internalRevisions)", value: Binding(
+                    get: { task.internalRevisions },
+                    set: { store.setRevisions(client: task.clientRevisions, internal: $0, for: task) }
+                ), in: 0...99)
             }
 
             checklistSection
@@ -96,7 +123,7 @@ struct TaskDetailView: View {
         }
         .confirmationDialog("ลบงานนี้?", isPresented: $confirmingDelete, titleVisibility: .visible) {
             Button("ลบ", role: .destructive) {
-                context.delete(task)
+                store.delete(task)
                 dismiss()
             }
         }
@@ -124,9 +151,13 @@ struct TaskDetailView: View {
 
     private var checklistSection: some View {
         Section {
-            ForEach(task.sortedChecklist) { item in
+            ForEach(task.checklist) { item in
                 Button {
-                    withAnimation { item.isDone.toggle() }
+                    var checklist = task.checklist
+                    if let index = checklist.firstIndex(where: { $0.id == item.id }) {
+                        checklist[index].isDone.toggle()
+                        store.setChecklist(checklist, for: task)
+                    }
                 } label: {
                     HStack {
                         Image(systemName: item.isDone ? "checkmark.circle.fill" : "circle")
@@ -139,10 +170,9 @@ struct TaskDetailView: View {
                 }
             }
             .onDelete { offsets in
-                let items = task.sortedChecklist
-                for index in offsets {
-                    context.delete(items[index])
-                }
+                var checklist = task.checklist
+                checklist.remove(atOffsets: offsets)
+                store.setChecklist(checklist, for: task)
             }
 
             HStack {
@@ -162,9 +192,7 @@ struct TaskDetailView: View {
     private func addChecklistItem() {
         let title = newChecklistTitle.trimmingCharacters(in: .whitespaces)
         guard !title.isEmpty else { return }
-        let item = ChecklistItem(title: title, order: (task.checklist.map(\.order).max() ?? -1) + 1)
-        context.insert(item)
-        item.task = task
+        store.setChecklist(task.checklist + [ChecklistItem(title: title)], for: task)
         newChecklistTitle = ""
     }
 
@@ -186,10 +214,8 @@ struct TaskDetailView: View {
                 .padding(.vertical, 2)
             }
             .onDelete { offsets in
-                let comments = task.sortedComments
-                for index in offsets {
-                    context.delete(comments[index])
-                }
+                let removed = Set(offsets.map { task.sortedComments[$0].id })
+                store.setComments(task.comments.filter { !removed.contains($0.id) }, for: task)
             }
 
             HStack {
@@ -205,71 +231,52 @@ struct TaskDetailView: View {
     private func addComment() {
         let text = newComment.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        let comment = TaskComment(text: text, author: userName)
-        context.insert(comment)
-        comment.task = task
+        store.addComment(TaskComment(text: text, author: userName.isEmpty ? "ไม่ระบุชื่อ" : userName), to: task)
         newComment = ""
     }
 }
 
 struct TaskEditorView: View {
-    @Environment(\.modelContext) private var context
+    @Environment(TeamStore.self) private var store
     @Environment(\.dismiss) private var dismiss
-    @Query(sort: \TeamMember.name) private var members: [TeamMember]
-    @Query(sort: \Brand.name) private var brands: [Brand]
 
-    private let task: TaskItem?
-
-    @State private var title: String
-    @State private var dueDate: Date
-    @State private var status: TaskStatus
-    @State private var action: TaskAction
-    @State private var material: MaterialType
-    @State private var assignee: TeamMember?
-    @State private var brand: Brand?
-    @State private var materialsURL: String
-    @State private var outputURL: String
-    @State private var notes: String
+    @State private var draft: TaskItem
+    private let isNew: Bool
 
     init(task: TaskItem? = nil, defaultDate: Date = .now) {
-        self.task = task
-        _title = State(initialValue: task?.title ?? "")
-        _dueDate = State(initialValue: task?.dueDate ?? defaultDate)
-        _status = State(initialValue: task?.status ?? .inProgress)
-        _action = State(initialValue: task?.action ?? .create)
-        _material = State(initialValue: task?.material ?? .copywriting)
-        _assignee = State(initialValue: task?.assignee)
-        _brand = State(initialValue: task?.brand)
-        _materialsURL = State(initialValue: task?.materialsURL ?? "")
-        _outputURL = State(initialValue: task?.outputURL ?? "")
-        _notes = State(initialValue: task?.notes ?? "")
+        isNew = task == nil
+        var draft = task ?? TaskItem(title: "", dueDate: defaultDate)
+        if task == nil {
+            draft.material = .copywriting
+        }
+        _draft = State(initialValue: draft)
     }
 
     private var canSave: Bool {
-        !title.trimmingCharacters(in: .whitespaces).isEmpty
+        !draft.title.trimmingCharacters(in: .whitespaces).isEmpty
     }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("ชื่องาน", text: $title)
-                    DatePicker("กำหนดส่ง", selection: $dueDate, displayedComponents: .date)
+                    TextField("ชื่องาน", text: $draft.title)
+                    DatePicker("กำหนดส่ง", selection: $draft.dueDate, displayedComponents: .date)
                 }
 
                 Section {
-                    Picker("ผู้รับผิดชอบ", selection: $assignee) {
-                        Text("ยังไม่มอบหมาย").tag(nil as TeamMember?)
-                        ForEach(members) { member in
-                            Text(member.name).tag(member as TeamMember?)
+                    Picker("ผู้รับผิดชอบ", selection: $draft.assigneeID) {
+                        Text("ยังไม่มอบหมาย").tag(nil as String?)
+                        ForEach(store.members) { member in
+                            Text(member.name).tag(member.id as String?)
                         }
                     }
-                    Picker("แบรนด์ / ลูกค้า", selection: $brand) {
-                        Text("ไม่ระบุ").tag(nil as Brand?)
+                    Picker("แบรนด์ / ลูกค้า", selection: $draft.brandID) {
+                        Text("ไม่ระบุ").tag(nil as String?)
                         ForEach(BrandKind.allCases) { kind in
                             Section(kind.title) {
-                                ForEach(brands.filter { $0.kind == kind }) { brand in
-                                    Text(brand.name).tag(brand as Brand?)
+                                ForEach(store.brands.filter { $0.kind == kind }) { brand in
+                                    Text(brand.name).tag(brand.id as String?)
                                 }
                             }
                         }
@@ -277,18 +284,18 @@ struct TaskEditorView: View {
                 }
 
                 Section {
-                    Picker("ประเภทงาน", selection: $material) {
+                    Picker("ประเภทงาน", selection: $draft.material) {
                         ForEach(MaterialType.allCases) { type in
                             Label(type.title, systemImage: type.icon).tag(type)
                         }
                     }
-                    Picker("ขั้นตอน", selection: $action) {
+                    Picker("ขั้นตอน", selection: $draft.action) {
                         ForEach(TaskAction.allCases) { action in
                             Text(action.title).tag(action)
                         }
                     }
                     .pickerStyle(.segmented)
-                    Picker("สถานะ", selection: $status) {
+                    Picker("สถานะ", selection: $draft.status) {
                         ForEach(TaskStatus.allCases) { status in
                             Text(status.title).tag(status)
                         }
@@ -296,22 +303,22 @@ struct TaskEditorView: View {
                 }
 
                 Section("ลิงก์ไฟล์") {
-                    TextField("ลิงก์ Materials", text: $materialsURL)
+                    TextField("ลิงก์ Materials", text: $draft.materialsURL)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    TextField("ลิงก์ Output", text: $outputURL)
+                    TextField("ลิงก์ Output", text: $draft.outputURL)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                 }
 
                 Section("โน้ต") {
-                    TextField("รายละเอียดเพิ่มเติม", text: $notes, axis: .vertical)
+                    TextField("รายละเอียดเพิ่มเติม", text: $draft.notes, axis: .vertical)
                         .lineLimit(3...8)
                 }
             }
-            .navigationTitle(task == nil ? "งานใหม่" : "แก้ไขงาน")
+            .navigationTitle(isNew ? "งานใหม่" : "แก้ไขงาน")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -325,25 +332,18 @@ struct TaskEditorView: View {
     }
 
     private func save() {
-        let target: TaskItem
-        if let task {
-            target = task
-        } else {
-            // Insert before setting relationships so SwiftData tracks them.
-            target = TaskItem(title: "", dueDate: dueDate)
-            context.insert(target)
+        var task = draft
+        task.title = task.title.trimmingCharacters(in: .whitespaces)
+        task.materialsURL = task.materialsURL.trimmingCharacters(in: .whitespaces)
+        task.outputURL = task.outputURL.trimmingCharacters(in: .whitespaces)
+        if !isNew, let latest = store.task(task.id) {
+            // Keep checklist/comments a teammate may have changed while this form was open.
+            task.checklist = latest.checklist
+            task.comments = latest.comments
+            task.clientRevisions = latest.clientRevisions
+            task.internalRevisions = latest.internalRevisions
         }
-        target.title = title.trimmingCharacters(in: .whitespaces)
-        target.dueDate = dueDate
-        target.status = status
-        target.action = action
-        target.material = material
-        target.assignee = assignee
-        target.brand = brand
-        target.materialsURL = materialsURL.trimmingCharacters(in: .whitespaces)
-        target.outputURL = outputURL.trimmingCharacters(in: .whitespaces)
-        target.notes = notes
-        target.updatedAt = .now
+        store.save(task)
         dismiss()
     }
 }
