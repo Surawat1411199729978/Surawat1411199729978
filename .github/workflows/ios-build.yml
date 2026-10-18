@@ -2,6 +2,7 @@ name: iOS build
 
 on:
   push:
+    paths: ['TaskTracker/**', 'TaskTracker.xcodeproj/**', '.github/workflows/ios-build.yml']
   pull_request:
   workflow_dispatch:
 
